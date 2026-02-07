@@ -1,7 +1,7 @@
 #include <o2/math.h>
 
 
-void o2_math_movingAverageInit(MovingAverage_int32* collection, int32* buffer, size_t capacity) {
+void o2_math_movingAverageInit(o2_MovingAverage_int32* collection, int32* buffer, size_t capacity) {
     collection->values = buffer;
     collection->capacity = capacity;
     collection->sum = 0;
@@ -9,7 +9,7 @@ void o2_math_movingAverageInit(MovingAverage_int32* collection, int32* buffer, s
     collection->index = 0;
 }
 
-int32 o2_math_movingAverageAdd(MovingAverage_int32* collection, int32 value) {
+int32 o2_math_movingAverageAdd(o2_MovingAverage_int32* collection, int32 value) {
     if (collection->count == collection->capacity) {
         collection->sum -= collection->values[collection->index];
     }

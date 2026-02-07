@@ -2,7 +2,7 @@
 #include <assert.h>
 
 
-void* o2_arena_push(Arena* arena, size_t size) {
+void* o2_arena_push(o2_Arena* arena, size_t size) {
     assert(arena->used + size <= arena->size);
 
     void* start = (void*)(arena->base + arena->used);
@@ -11,7 +11,7 @@ void* o2_arena_push(Arena* arena, size_t size) {
     return start;
 }
 
-void* o2_arena_pushArray(Arena* arena, size_t sizePerElement, size_t count) {
+void* o2_arena_pushArray(o2_Arena* arena, size_t sizePerElement, size_t count) {
     size_t size = sizePerElement * count;
     
     assert(arena->used + size <= arena->size);
@@ -19,7 +19,7 @@ void* o2_arena_pushArray(Arena* arena, size_t sizePerElement, size_t count) {
     return o2_arena_push(arena, size);
 }
 
-void* o2_arena_pushAligned(Arena* arena, size_t size, size_t alignment) {
+void* o2_arena_pushAligned(o2_Arena* arena, size_t size, size_t alignment) {
     uintptr_t currentAddress = (uintptr_t)arena->base + arena->used;
 
     // bit manipulation to get next aligned address
@@ -39,7 +39,7 @@ void* o2_arena_pushAligned(Arena* arena, size_t size, size_t alignment) {
     return (void*)(alignedAddress);
 }
 
-void* o2_arena_pushArrayAligned(Arena* arena, size_t sizePerElement, size_t count, size_t alignment) {
+void* o2_arena_pushArrayAligned(o2_Arena* arena, size_t sizePerElement, size_t count, size_t alignment) {
     size_t size = sizePerElement * count;
 
     // assert doesnt factor in alignment offset, another assert expected to be called in helper function

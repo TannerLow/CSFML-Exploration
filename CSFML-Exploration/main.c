@@ -6,21 +6,27 @@
 #include <o2/types.h>
 #include <o2/arena.h>
 #include <o2/math.h>
+#include <o2/sfml/display.h>
+#include <o2/geometry.h>
+#include <o2/display.h>
 
 void printError(const char* message, const char* file, int lineNumber);
 void simpleNumToString(char* output, int num, int maxDigits);
 
 int main() {
 	int returnCode = EXIT_SUCCESS;
+
 	sfRenderWindow* window = NULL;
 	sfRectangleShape* rectangle = NULL;
 	sfFont* arialFont = NULL;
 	sfText* fpsText = NULL;
 	sfClock* fpsClock = NULL;
 	sfClock* fpsLimiterClock = NULL;
+	sfTexture* texture = NULL;
+	sfTexture* uiSpriteSheet = NULL;
 
 	size_t globalArenaSize = 1 * MEGABYTE;
-	Arena globalArena = {
+	o2_Arena globalArena = {
 		.base = (uint8*)malloc(globalArenaSize),
 		.size = globalArenaSize,
 		.used = 0
@@ -73,6 +79,78 @@ int main() {
 		sfRectangleShape_setPosition(rectangle, (sfVector2f) { 400, 400 });
 		sfRectangleShape_setSize(rectangle, (sfVector2f) { 200, 100 });
 
+		texture = sfTexture_createFromFile("resources/attack on ct.png", NULL);
+		if (NULL == texture) {
+			printError("Failed to load image: resources/attack on ct.png", __FILE__, __LINE__);
+			returnCode = EXIT_FAILURE;
+			goto CLEAN_RESOURCES;
+		}
+		sfVector2u textureSize = sfTexture_getSize(texture);
+
+		uiSpriteSheet = sfTexture_createFromFile("resources/squid3.png", NULL);
+		if (NULL == uiSpriteSheet) {
+			printError("Failed to load image: resources/squid3.png", __FILE__, __LINE__);
+			returnCode = EXIT_FAILURE;
+			goto CLEAN_RESOURCES;
+		}
+		sfVector2u uiSpriteSheetSize = sfTexture_getSize(uiSpriteSheet);
+
+		const size_t maxVertexInBatch = 100;
+		o2_sfVertexBatch batch = {
+			.vertices = o2_arena_pushArrayAligned(&globalArena, sizeof(sfVertex), maxVertexInBatch, alignof(float32)),
+			.primitiveType = sfTriangleStrip,
+			.renderStates = sfRenderStates_default,
+			.capacity = maxVertexInBatch,
+			.count = 0
+		};
+		batch.renderStates.texture = texture;
+
+		const size_t maxVertexInUIBatch = 100;
+		o2_sfVertexBatch uiBatch = {
+			.vertices = o2_arena_pushArrayAligned(&globalArena, sizeof(sfVertex), maxVertexInUIBatch, alignof(float32)),
+			.primitiveType = sfTriangleStrip,
+			.renderStates = sfRenderStates_default,
+			.capacity = maxVertexInUIBatch,
+			.count = 0
+		};
+		uiBatch.renderStates.texture = uiSpriteSheet;
+
+		sfVertex* vertices = o2_display_getNextVertexDestination(&batch, 4);
+		vertices[0].position = (sfVector2f){ 100, 100 };
+		vertices[1].position = (sfVector2f){ 500, 100 };
+		vertices[2].position = (sfVector2f){ 100, 300 };
+		vertices[3].position = (sfVector2f){ 500, 300 };
+		vertices[0].color = sfWhite;
+		vertices[1].color = sfWhite;
+		vertices[2].color = sfWhite;
+		vertices[3].color = sfWhite;
+		vertices[0].texCoords = (sfVector2f){ 0, 0 };
+		vertices[1].texCoords = (sfVector2f){ (float)textureSize.x, 0 };
+		vertices[2].texCoords = (sfVector2f){ 0, (float)textureSize.y };
+		vertices[3].texCoords = (sfVector2f){ (float)textureSize.x, (float)textureSize.y };
+
+		o2_sfUIContext uiContext = {0};
+
+		o2_Rect buttonRect = {
+			.x = 700,
+			.y = 300,
+			.w = 200,
+			.h = 100
+		};
+		o2_Rect buttonTexRect = {
+			.x = 0,
+			.y = 0,
+			.w = 768,
+			.h = 768
+		};
+		o2_ButtonStyle buttonStyle = {
+			.textureRect = buttonTexRect,
+			.hoverTextureRect = buttonTexRect,
+			.activeTextureRect = buttonTexRect
+		};
+
+		printf("Global arena usage pre-game loop: %llu\n", globalArena.used);
+
 		fpsClock = sfClock_create();
 		if (NULL == fpsClock) {
 			printError("Failed to create FPS clock", __FILE__, __LINE__);
@@ -87,10 +165,9 @@ int main() {
 			returnCode = EXIT_FAILURE;
 			goto CLEAN_RESOURCES;
 		}
-		sfTime frameLimiterTime;
 
-		MovingAverage_int32 fpsMovingAverage;
-		//o2_arena_pushAligned(&globalArena, sizeof(MovingAverage_int32), alignof(int32));
+		int fpsCap = 240;
+		o2_MovingAverage_int32 fpsMovingAverage;
 		fpsMovingAverage.capacity = 60;
 		fpsMovingAverage.values = o2_arena_pushArrayAligned(
 			&globalArena, 
@@ -108,14 +185,33 @@ int main() {
 
 			while (sfRenderWindow_pollEvent(window, &event)) {
 
-				if (event.type == sfEvtClosed) {
+				if (event.type == sfEvtMouseMoved) {
+					sfVector2f mousePos = sfRenderWindow_mapPixelToCoords(
+						window, 
+						event.mouseMove.position, 
+						sfRenderWindow_getView(window)
+					);
+					uiContext.mousePos.x = mousePos.x;
+					uiContext.mousePos.y = mousePos.y;
+				}
+				else if (event.type == sfEvtMouseButtonPressed) {
+					uiContext.mouseDown = true;
+					uiContext.activeId = uiContext.candidateId;
+				}
+				else if (event.type == sfEvtMouseButtonReleased) {
+					uiContext.mouseDown = false;
+					uiContext.mouseClicked = true;
+				}
+				else if (event.type == sfEvtClosed) {
 					sfRenderWindow_close(window);
 				}
-
 			}
 
-			if (sfTime_asSeconds(sfClock_getElapsedTime(fpsLimiterClock)) > 1.f / 240.f) {
+			uiContext.hoverId = uiContext.candidateId;
 
+			if (sfTime_asSeconds(sfClock_getElapsedTime(fpsLimiterClock)) > 1.f / fpsCap) {
+
+				// average fps display update
 				frameTime = sfClock_restart(fpsClock);
 				int fps = (int)(1.0f / sfTime_asSeconds(frameTime));
 				fps = o2_math_movingAverageAdd(&fpsMovingAverage, fps);
@@ -124,9 +220,33 @@ int main() {
 					sfText_setString(fpsText, fpsDigits);
 				}
 
+				uiBatch.count = 0;
+				uiContext.candidateId = 0;
+				if (o2_display_button(&uiContext, &uiBatch, __LINE__, buttonRect, &buttonStyle)) {
+					printf("Button clicked\n");
+				}
+				if (uiContext.mouseClicked) {
+					uiContext.mouseClicked = false;
+					uiContext.activeId = 0;
+				}
+
 				sfRenderWindow_clear(window, sfBlack);
 				sfRenderWindow_drawRectangleShape(window, rectangle, NULL);
 				sfRenderWindow_drawText(window, fpsText, NULL);
+				sfRenderWindow_drawPrimitives(
+					window, 
+					batch.vertices, 
+					batch.count, 
+					batch.primitiveType, 
+					&batch.renderStates
+				);
+				sfRenderWindow_drawPrimitives(
+					window, 
+					uiBatch.vertices, 
+					uiBatch.count, 
+					uiBatch.primitiveType, 
+					&uiBatch.renderStates
+				);
 				sfRenderWindow_display(window);
 
 				sfClock_restart(fpsLimiterClock);
@@ -136,6 +256,8 @@ int main() {
 
 CLEAN_RESOURCES:
 	free(globalArena.base);
+	sfTexture_destroy(uiSpriteSheet);
+	sfTexture_destroy(texture);
 	sfClock_destroy(fpsLimiterClock);
 	sfClock_destroy(fpsClock);
 	sfText_destroy(fpsText);
